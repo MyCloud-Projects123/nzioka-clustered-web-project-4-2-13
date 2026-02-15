@@ -33,6 +33,13 @@ resource "google_compute_instance_group_manager" "web_server_group" {
     instance_template = google_compute_instance_template.web_server_template.id
   }
 }
+# 3. The health check
+resource "google_compute_health_check" "auto_healing"{
+  name = "auto-healing-check"
+  http_health_check {
+    port = "80"
+ }
+}
 # This opens the door so people can see your website
 resource "google_compute_firewall" "allow_http" {
   name    = "allow-http-traffic"
@@ -55,3 +62,40 @@ output "server_ips" {
   value = google_compute_instance_group_manager.web_server_group.instance_group
   description = "The link to your group of servers"
 }
+# 1. THE FRONT END (The IP Address people type in)
+resource "google_compute_global_forwarding_rule" "default" {
+  name       = "web-forwarding-rule"
+  target     = google_compute_target_http_proxy.default.id
+  port_range = "80"
+}
+
+# 2. THE PROXY (The logic that handles the request)
+resource "google_compute_target_http_proxy" "default" {
+  name    = "web-proxy"
+  url_map = google_compute_url_map.default.id
+}
+
+# 3. THE URL MAP (The routing table)
+resource "google_compute_url_map" "default" {
+  name            = "web-map"
+  default_service = google_compute_backend_service.default.id
+}
+
+# 4. THE BACKEND SERVICE (The bridge to your "Herd")
+resource "google_compute_backend_service" "default" {
+  name        = "web-backend"
+  port_name   = "http"
+  protocol    = "HTTP"
+  timeout_sec = 10
+
+  backend {
+    group = google_compute_instance_group_manager.web_server_group.instance_group
+  }
+
+  health_checks = [google_compute_health_check.auto_healing.id]
+}
+output "load_balancer_ip" {
+  value = google_compute_global_forwarding_rule.default.ip_address
+}
+
+
